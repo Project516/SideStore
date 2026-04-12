@@ -40,7 +40,12 @@ jobs:
           brew install ldid xcbeautify cocoapods
 
       - name: Install pods
-        run: pod install
+        run: pod install --repo-update
+
+      - name: Verify KeychainAccess pod is installed
+        run: |
+          test -d Pods/KeychainAccess
+          test -f Pods/Target\ Support\ Files/Pods-AltStoreCore/Pods-AltStoreCore.debug.xcconfig
 
       - name: Build SideStore archive
         run: |
