@@ -1,7 +1,20 @@
 name: Build SideStore
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
+    inputs:
+      custom_bundle_id:
+        description: "Optional exact app bundle ID (example: dev.project516.sidestore)"
+        required: false
+        default: ""
+      org_identifier:
+        description: "Optional org identifier when not using custom_bundle_id (example: dev.project516)"
+        required: false
+        default: ""
+      bundle_id_suffix:
+        description: "Optional suffix appended to default bundle ID format"
+        required: false
+        default: ""
   push:
     branches: [ "change-id" ]
 
@@ -22,73 +35,69 @@ jobs:
         with:
           xcode-version: '26.2'
 
-      - name: Patch Bundle ID and App Groups
+      - name: Install dependencies
         run: |
-          OLD_APP_ID="com.SideStore.SideStore"
-          NEW_APP_ID="dev.project516.sidestore"
-          
-          OLD_ORG="com.SideStore"
-          NEW_ORG="dev.project516"
-          
-          export LC_ALL=C
-          
-          echo "Patching exact App ID: $OLD_APP_ID -> $NEW_APP_ID"
-          find . -type f \( \
-            -name "*.pbxproj" \
-            -o -name "*.plist" \
-            -o -name "*.entitlements" \
-            -o -name "*.xml" \
-            -o -name "*.xcconfig" \
-            -o -name "*.swift" \
-            -o -name "*.m" \
-            -o -name "*.h" \
-            -o -name "*.c" \
-            -o -name "*.cpp" \
-            -o -name "*.xcstrings" \
-            -o -name "*.json" \
-          \) -print0 | xargs -0 sed -i '' "s/$OLD_APP_ID/$NEW_APP_ID/g"
+          brew install ldid xcbeautify cocoapods
 
-          echo "Patching base Org ID: $OLD_ORG -> $NEW_ORG"
-          find . -type f \( \
-            -name "*.pbxproj" \
-            -o -name "*.plist" \
-            -o -name "*.entitlements" \
-            -o -name "*.xml" \
-            -o -name "*.xcconfig" \
-            -o -name "*.swift" \
-            -o -name "*.m" \
-            -o -name "*.h" \
-            -o -name "*.c" \
-            -o -name "*.cpp" \
-            -o -name "*.xcstrings" \
-            -o -name "*.json" \
-          \) -print0 | xargs -0 sed -i '' "s/$OLD_ORG/$NEW_ORG/g"
+      - name: Install pods
+        run: pod install
 
-      - name: Build with Xcode (Bypassing Archive Validation)
+      - name: Build SideStore archive
         run: |
           set -o pipefail
-          
-          # Explicitly resolve dependencies first
-          xcodebuild -resolvePackageDependencies
-          
-          # Build against the .xcodeproj as required by the latest SideStore source
-          xcodebuild build \
-            -project SideStore.xcodeproj \
-            -scheme SideStore \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            ENTITLEMENTS_REQUIRED=NO | xcbeautify
+
+          CUSTOM_BUNDLE_ID="${{ github.event.inputs.custom_bundle_id }}"
+          ORG_IDENTIFIER="${{ github.event.inputs.org_identifier }}"
+          BUNDLE_ID_SUFFIX="${{ github.event.inputs.bundle_id_suffix }}"
+          EFFECTIVE_BUNDLE_ID=""
+
+          if [[ -n "$CUSTOM_BUNDLE_ID" ]]; then
+            echo "Using exact custom bundle ID: $CUSTOM_BUNDLE_ID"
+            export BUNDLE_ID="$CUSTOM_BUNDLE_ID"
+            EFFECTIVE_BUNDLE_ID="$CUSTOM_BUNDLE_ID"
+          fi
+
+          if [[ -n "$ORG_IDENTIFIER" ]]; then
+            echo "Using org identifier override: $ORG_IDENTIFIER"
+            export ORG_IDENTIFIER
+          fi
+
+          if [[ -n "$BUNDLE_ID_SUFFIX" ]]; then
+            echo "Using bundle ID suffix: $BUNDLE_ID_SUFFIX"
+            export BUNDLE_ID_SUFFIX
+          fi
+
+          if [[ -z "$EFFECTIVE_BUNDLE_ID" ]]; then
+            EFFECTIVE_ORG_IDENTIFIER="${ORG_IDENTIFIER:-com.SideStore}"
+            EFFECTIVE_BUNDLE_ID="${EFFECTIVE_ORG_IDENTIFIER}.SideStore${BUNDLE_ID_SUFFIX}"
+          fi
+
+          echo "Effective bundle ID for this build: $EFFECTIVE_BUNDLE_ID"
+
+          if [[ "$EFFECTIVE_BUNDLE_ID" != "com.SideStore.SideStore" ]]; then
+            /usr/libexec/PlistBuddy -c "Set :application-identifier XYZ0123456.$EFFECTIVE_BUNDLE_ID" AltStore/Resources/ReleaseEntitlements.plist
+            /usr/libexec/PlistBuddy -c "Set :com.apple.security.application-groups:0 group.$EFFECTIVE_BUNDLE_ID" AltStore/Resources/ReleaseEntitlements.plist
+
+            /usr/libexec/PlistBuddy -c "Set :application-identifier XYZ0123456.$EFFECTIVE_BUNDLE_ID.AltWidget" AltWidget/Resources/ReleaseEntitlements.plist
+            /usr/libexec/PlistBuddy -c "Set :com.apple.security.application-groups:0 group.$EFFECTIVE_BUNDLE_ID" AltWidget/Resources/ReleaseEntitlements.plist
+
+            /usr/libexec/PlistBuddy -c "Set :application-identifier XYZ0123456.$EFFECTIVE_BUNDLE_ID.AltBackup" AltBackup/Resources/ReleaseEntitlements.plist
+            /usr/libexec/PlistBuddy -c "Set :com.apple.security.application-groups:0 group.$EFFECTIVE_BUNDLE_ID" AltBackup/Resources/ReleaseEntitlements.plist
+
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 sidestore-$EFFECTIVE_BUNDLE_ID" AltStore/Info.plist
+            /usr/libexec/PlistBuddy -c "Set :LSApplicationQueriesSchemes:0 sidestore-$EFFECTIVE_BUNDLE_ID" AltStore/Info.plist
+            /usr/libexec/PlistBuddy -c "Set :LSApplicationQueriesSchemes:1 sidestore-$EFFECTIVE_BUNDLE_ID.Beta" AltStore/Info.plist
+          fi
+
+          make clean
+          NSUnbufferedIO=YES make -B build 2>&1 | xcbeautify --renderer github-actions && exit ${PIPESTATUS[0]}
+
+      - name: Fakesign app
+        run: make fakesign
 
       - name: Package IPA
         run: |
-          mkdir -p Payload
-          cp -R build/Build/Products/Release-iphoneos/SideStore.app Payload/
-          zip -r SideStore.ipa Payload
+          make ipa
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

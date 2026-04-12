@@ -166,6 +166,7 @@ test:
 # Overrides (will inherit from env if set already)
 BUILD_CONFIG ?= Release
 MARKETING_VERSION ?= 
+BUNDLE_ID ?=
 BUNDLE_ID_SUFFIX ?= 
 # Common build settings for xcodebuild
 COMMON_BUILD_SETTINGS = \
@@ -182,6 +183,11 @@ COMMON_BUILD_SETTINGS = \
 # Append MARKETING_VERSION if it’s not empty (coz otherwise the blank entry becomes override)
 ifneq ($(strip $(MARKETING_VERSION)),)
 COMMON_BUILD_SETTINGS += MARKETING_VERSION=$(MARKETING_VERSION)
+endif
+
+# Append BUNDLE_ID if it’s not empty (coz otherwise the blank entry becomes override)
+ifneq ($(strip $(BUNDLE_ID)),)
+COMMON_BUILD_SETTINGS += BUNDLE_ID=$(BUNDLE_ID)
 endif
 
 # Append BUNDLE_ID_SUFFIX if it’s not empty (coz otherwise the blank entry becomes override)
