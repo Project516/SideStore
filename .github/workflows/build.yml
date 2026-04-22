@@ -15,8 +15,8 @@ on:
         description: "Optional suffix appended to default bundle ID format"
         required: false
         default: ""
-  push:
-    branches: [ "change-id" ]
+  #push:
+  #  branches: [ "change-id" ]
 
 jobs:
   build:
@@ -46,6 +46,17 @@ jobs:
         run: |
           test -d Pods/KeychainAccess
           test -f Pods/Target\ Support\ Files/Pods-AltStoreCore/Pods-AltStoreCore.debug.xcconfig
+
+      - name: Create CI Xcode overrides
+        run: |
+          cat > "$RUNNER_TEMP/ci-overrides.xcconfig" <<'EOF'
+          // CI-only override to avoid explicit Swift module dependency resolution failures
+          SWIFT_ENABLE_EXPLICIT_MODULES = NO
+          CLANG_ENABLE_EXPLICIT_MODULES = NO
+          EOF
+
+          echo "Using override file: $RUNNER_TEMP/ci-overrides.xcconfig"
+          cat "$RUNNER_TEMP/ci-overrides.xcconfig"
 
       - name: Build SideStore archive
         run: |
@@ -95,7 +106,7 @@ jobs:
           fi
 
           make clean
-          NSUnbufferedIO=YES make -B build 2>&1 | xcbeautify --renderer github-actions && exit ${PIPESTATUS[0]}
+          XCODE_XCCONFIG_FILE="$RUNNER_TEMP/ci-overrides.xcconfig" NSUnbufferedIO=YES make -B build 2>&1 | xcbeautify --renderer github-actions && exit ${PIPESTATUS[0]}
 
       - name: Fakesign app
         run: make fakesign
